@@ -9,8 +9,8 @@ const int localUdpPort = 4210;
 char incomingPacket[255];
 
 // IP addresses of follower cars
-const char* follower1IP = "192.168.xxx";
-const char* follower2IP = "192.168.xxx";
+const char* follower1IP = "192.168.xxx"; // IP address of follower car1
+const char* follower2IP = "192.168.xxx"; // IP address of follower car2
 const int followerPort = 4210;
 
 // Motor pins
@@ -137,3 +137,4 @@ void loop() {
     delay(50);
   }
 }
+
