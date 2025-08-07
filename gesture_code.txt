@@ -1,0 +1,96 @@
+#include <Wire.h>
+#include <MPU6050.h>
+#include <ESP8266WiFi.h>
+#include <WiFiUdp.h>
+
+const char* ssid = "wifi name";         
+const char* password = "wifi password";          
+
+const char* receiverIP = "10.51.5.xxx";  // IP address of leader car
+const int udpPort = 4210;
+
+WiFiUDP udp;
+MPU6050 mpu;
+
+int16_t ax, ay, az, gx, gy, gz;
+unsigned long lastSpecialCmdTime = 0;
+bool inZigzagMode = false;
+bool inLeftRightCooldown = false;
+
+const unsigned long zigzagDuration = 5000;      // 5 sec lock
+const unsigned long leftRightDuration = 525;    // left/right active time
+const unsigned long cooldownAfterTurn = 2000;   // 2 sec no-command window
+
+void sendCommand(String command) {
+  udp.beginPacket(receiverIP, udpPort);
+  udp.print(command);
+  udp.endPacket();
+
+  Serial.println("Sent: " + command);
+}
+
+void setup() {
+  Serial.begin(9600);
+  Wire.begin(D3, D2); // SDA, SCL for ESP8266
+  mpu.initialize();
+
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("\nConnected to Wi-Fi");
+  udp.begin(udpPort);
+}
+
+void loop() {
+  mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+  unsigned long now = millis();
+
+  if (inZigzagMode && now - lastSpecialCmdTime > zigzagDuration) {
+    inZigzagMode = false;
+  }
+
+  if (inLeftRightCooldown && now - lastSpecialCmdTime > cooldownAfterTurn) {
+    inLeftRightCooldown = false;
+  }
+
+  // Block other commands during zigzag or cooldown
+  if (inZigzagMode || inLeftRightCooldown) return;
+
+  String command = "";
+
+  if (abs(ax) < 4000 && abs(ay) < 4000 && abs(az) < 16000) {
+    command = "stop";
+  } else if (ay > 14200) {
+    command = "forward";
+  } else if (ay < -14200) {
+    command = "backward";
+  } else if (ax > 11500) {
+    command = "left";
+    sendCommand(command);
+    delay(leftRightDuration);
+    sendCommand("stop");
+    lastSpecialCmdTime = now;
+    inLeftRightCooldown = true;
+    return;
+  } else if (ax < -11500) {
+    command = "right";
+    sendCommand(command);
+    delay(leftRightDuration);
+    sendCommand("stop");
+    lastSpecialCmdTime = now;
+    inLeftRightCooldown = true;
+    return;
+  } else if (abs(az) > 22000) {
+    command = "zigzag";
+    lastSpecialCmdTime = now;
+    inZigzagMode = true;
+  }
+
+  if (command != "" && !inLeftRightCooldown) {
+    sendCommand(command);
+    delay(200);
+  }
+}
